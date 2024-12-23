@@ -1,22 +1,22 @@
 [package]
-name = "RustyXML"
-version = "0.3.0"
-authors = [ "Florian Zeitz <florob@babelmonkeys.de>" ]
+name = "xml_stream"
+version = "0.4.0"
+authors = [ "Florian Zeitz <florob@babelmonkeys.de>", "CjS77" ]
 license = "MIT/Apache-2.0"
-homepage = "https://github.com/Florob/RustyXML"
-repository = "https://github.com/Florob/RustyXML"
+homepage = "https://github.com/CjS77/xml_stream"
+repository = "https://github.com/CjS77/xml_stream"
 documentation = "https://docs.babelmonkeys.de/RustyXML/xml/"
 description = "A SAX-like streaming XML parser, and a DOM-like interface based on that"
 keywords = [ "XML", "parser" ]
 readme = "README.md"
-edition = "2018"
+edition = "2021"
 
 [lib]
 name = "xml"
 
 [dependencies]
-indexmap = { version = "1.7.0", optional = true }
+indexmap = { version = "2.7.0", optional = true }
+log = "0.4.22"
 
 [features]
 ordered_attrs = ["indexmap"]
-bench = []

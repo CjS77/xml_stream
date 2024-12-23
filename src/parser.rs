@@ -12,9 +12,10 @@
 // Permission to license this derived work under MIT license has been granted by ObjFW's author.
 
 use crate::{unescape, AttrMap, EndTag, StartTag};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
+use std::io::Read;
 use std::iter::Iterator;
 use std::mem;
 
@@ -133,8 +134,8 @@ enum State {
 /// ~~~
 /// use xml::Parser;
 ///
-/// let mut p = Parser::new();
-/// p.feed_str("<a href='http://rust-lang.org'>Rust</a>");
+/// let s = "<a href='http://rust-lang.org'>Rust</a>".as_bytes();
+/// let mut p = Parser::new(s);
 /// for event in p {
 ///     match event {
 ///        // [...]
@@ -142,11 +143,14 @@ enum State {
 ///     }
 /// }
 /// ~~~
-pub struct Parser {
+pub struct Parser<R>
+where
+    R: Read,
+{
     line: u32,
     col: u32,
     has_error: bool,
-    data: VecDeque<char>,
+    data: R,
     buf: String,
     namespaces: Vec<HashMap<String, String>>,
     attributes: Vec<(String, Option<String>, String)>,
@@ -157,9 +161,12 @@ pub struct Parser {
     level: u8,
 }
 
-impl Parser {
+impl<R> Parser<R>
+where
+    R: Read,
+{
     /// Returns a new `Parser`
-    pub fn new() -> Parser {
+    pub fn new(reader: R) -> Self {
         let mut ns = HashMap::with_capacity(2);
         // Add standard namespaces
         ns.insert(
@@ -175,7 +182,7 @@ impl Parser {
             line: 1,
             col: 0,
             has_error: false,
-            data: VecDeque::with_capacity(4096),
+            data: reader,
             buf: String::new(),
             namespaces: vec![ns],
             attributes: Vec::new(),
@@ -186,27 +193,33 @@ impl Parser {
             level: 0,
         }
     }
-
-    /// Feeds a string slice to the parser
-    pub fn feed_str(&mut self, data: &str) {
-        self.data.extend(data.chars());
-    }
 }
 
-impl Iterator for Parser {
+impl<R> Iterator for Parser<R>
+where
+    R: Read,
+{
     type Item = Result<Event, ParserError>;
 
     fn next(&mut self) -> Option<Result<Event, ParserError>> {
         if self.has_error {
             return None;
         }
-
+        let mut buf = [0u8; 1];
         loop {
-            let c = match self.data.pop_front() {
-                Some(c) => c,
-                None => return None,
+            let c = match self.data.read(&mut buf) {
+                Ok(0) => return None,
+                Err(_) => {
+                    self.has_error = true;
+                    return Some(Err(ParserError {
+                        line: self.line,
+                        col: self.col,
+                        kind: ParserErrorKind::MalformedXml,
+                    }));
+                }
+                Ok(1) => buf[0] as char,
+                _ => unreachable!(),
             };
-
             if c == '\n' {
                 self.line += 1;
                 self.col = 0;
@@ -248,7 +261,10 @@ fn unescape_owned(input: String) -> Result<String, String> {
     }
 }
 
-impl Parser {
+impl<R> Parser<R>
+where
+    R: Read,
+{
     // Get the namespace currently bound to a prefix.
     // Bindings are stored as a stack of HashMaps, we start searching in the top most HashMap
     // and traverse down until the prefix is found.
@@ -732,9 +748,9 @@ mod parser_tests {
 
     #[test]
     fn test_start_tag() {
-        let mut p = Parser::new();
+        let s = "<a>".as_bytes();
+        let p = Parser::new(s);
         let mut i = 0u8;
-        p.feed_str("<a>");
         for event in p {
             i += 1;
             assert_eq!(
@@ -752,9 +768,8 @@ mod parser_tests {
 
     #[test]
     fn test_end_tag() {
-        let mut p = Parser::new();
+        let p = Parser::new("</a>".as_bytes());
         let mut i = 0u8;
-        p.feed_str("</a>");
         for event in p {
             i += 1;
             assert_eq!(
@@ -771,9 +786,8 @@ mod parser_tests {
 
     #[test]
     fn test_self_closing_with_space() {
-        let mut p = Parser::new();
-        p.feed_str("<register />");
-
+        let s = "<register />".as_bytes();
+        let p = Parser::new(s);
         let v: Vec<Result<Event, ParserError>> = p.collect();
         assert_eq!(
             v,
@@ -795,9 +809,8 @@ mod parser_tests {
 
     #[test]
     fn test_self_closing_without_space() {
-        let mut p = Parser::new();
-        p.feed_str("<register/>");
-
+        let s = "<register/>".as_bytes();
+        let p = Parser::new(s);
         let v: Vec<Result<Event, ParserError>> = p.collect();
         assert_eq!(
             v,
@@ -819,8 +832,8 @@ mod parser_tests {
 
     #[test]
     fn test_self_closing_namespace() {
-        let mut p = Parser::new();
-        p.feed_str("<foo:a xmlns:foo='urn:foo'/>");
+        let s = "<foo:a xmlns:foo='urn:foo'/>".as_bytes();
+        let p = Parser::new(s);
 
         let v: Vec<Result<Event, ParserError>> = p.collect();
         let mut attr: AttrMap<(String, Option<String>), String> = AttrMap::new();
@@ -851,9 +864,10 @@ mod parser_tests {
 
     #[test]
     fn test_pi() {
-        let mut p = Parser::new();
+        let s = "<?xml version='1.0' encoding='utf-8'?>".as_bytes();
+        let p = Parser::new(s);
         let mut i = 0u8;
-        p.feed_str("<?xml version='1.0' encoding='utf-8'?>");
+
         for event in p {
             i += 1;
             assert_eq!(
@@ -866,9 +880,9 @@ mod parser_tests {
 
     #[test]
     fn test_comment() {
-        let mut p = Parser::new();
+        let s = "<!--Nothing to see-->".as_bytes();
+        let p = Parser::new(s);
         let mut i = 0u8;
-        p.feed_str("<!--Nothing to see-->");
         for event in p {
             i += 1;
             assert_eq!(event, Ok(Event::Comment("Nothing to see".to_owned())));
@@ -877,9 +891,9 @@ mod parser_tests {
     }
     #[test]
     fn test_cdata() {
-        let mut p = Parser::new();
+        let s = "<![CDATA[<html><head><title>x</title></head><body/></html>]]>".as_bytes();
+        let p = Parser::new(s);
         let mut i = 0u8;
-        p.feed_str("<![CDATA[<html><head><title>x</title></head><body/></html>]]>");
         for event in p {
             i += 1;
             assert_eq!(
@@ -894,9 +908,9 @@ mod parser_tests {
 
     #[test]
     fn test_characters() {
-        let mut p = Parser::new();
+        let s = "<text>Hello World, it&apos;s a nice day</text>".as_bytes();
+        let p = Parser::new(s);
         let mut i = 0u8;
-        p.feed_str("<text>Hello World, it&apos;s a nice day</text>");
         for event in p {
             i += 1;
             if i == 2 {
@@ -911,9 +925,10 @@ mod parser_tests {
 
     #[test]
     fn test_doctype() {
-        let mut p = Parser::new();
+        let s = "<!DOCTYPE html>".as_bytes();
+        let p = Parser::new(s);
         let mut i = 0u8;
-        p.feed_str("<!DOCTYPE html>");
+
         for _ in p {
             i += 1;
         }
@@ -923,7 +938,7 @@ mod parser_tests {
     #[test]
     #[cfg(feature = "ordered_attrs")]
     fn test_attribute_order() {
-        let input = "<a href='/' title='Home' target='_blank'>";
+        let input = "<a href='/' title='Home' target='_blank'>".as_bytes();
         let expected_attributes = vec![
             (("href".to_owned(), None), "/".to_owned()),
             (("title".to_owned(), None), "Home".to_owned()),
@@ -932,8 +947,7 @@ mod parser_tests {
 
         // Run this 5 times to make it unlikely this test succeeds at random
         for _ in 0..5 {
-            let mut p = Parser::new();
-            p.feed_str(input);
+            let mut p = Parser::new(input);
             if let Some(Ok(Event::ElementStart(tag))) = p.next() {
                 for (expected, actual) in expected_attributes.iter().zip(tag.attributes) {
                     assert_eq!(expected, &actual);

@@ -11,8 +11,6 @@
 #![crate_type = "lib"]
 #![forbid(non_camel_case_types)]
 #![warn(missing_docs)]
-// Required for benchmarks
-#![cfg_attr(feature = "bench", feature(test))]
 
 /*!
  * An XML parsing library
