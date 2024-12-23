@@ -54,10 +54,10 @@ impl From<ParserError> for BuilderError {
 /// ~~~
 /// use xml::{Parser, ElementBuilder};
 ///
-/// let mut parser = Parser::new();
+/// let s = "<example/>".as_bytes();
+/// let mut parser = Parser::new(s);
 /// let mut builder = ElementBuilder::new();
 ///
-/// parser.feed_str("<example/>");
 /// for result in parser.filter_map(|event| builder.handle_event(event)) {
 ///     println!("{}", result.unwrap());
 /// }

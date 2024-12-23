@@ -267,10 +267,10 @@ impl FromStr for Element {
     type Err = BuilderError;
     #[inline]
     fn from_str(data: &str) -> Result<Element, BuilderError> {
-        let mut p = Parser::new();
+        let s = data.as_bytes();
+        let mut p = Parser::new(s);
         let mut e = ElementBuilder::new();
 
-        p.feed_str(data);
         p.find_map(|x| e.handle_event(x))
             .unwrap_or(Err(BuilderError::NoElement))
     }
